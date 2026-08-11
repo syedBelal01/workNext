@@ -23,12 +23,15 @@ Members update only the tasks assigned to them.
 |---|---|
 | Frontend | Next.js 14 (App Router), React 18, JavaScript |
 | Backend | Node.js, Express, JavaScript |
-| Database | MongoDB Atlas + Prisma |
+| Database | **MongoDB Atlas** (data storage) |
+| ORM / data access | **Prisma** (schema + queries from the API) |
 | Auth | JWT + bcrypt |
 | Validation | Zod |
 | Tests | Vitest + Supertest |
 | CI | GitHub Actions |
 | Deploy | Vercel (client + server) |
+
+**MongoDB vs Prisma:** MongoDB stores the data. Prisma is the bridge between Express and MongoDB (`prisma.user.findMany()`, models in `server/prisma/schema.prisma`). They work together — Prisma is not a database.
 
 ---
 

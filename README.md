@@ -8,7 +8,7 @@ Managers own delivery. Members update the work on their plate. Admins keep users
 
 - **Frontend:** Next.js 14 (React.js, App Router, JavaScript)
 - **Backend:** Node.js + Express (JavaScript)
-- **Database:** SQLite via Prisma (Postgres-ready schema patterns, zero local DB install)
+- **Database:** MongoDB Atlas via Prisma
 - **Auth:** JWT + bcrypt
 - **Validation:** Zod
 - **Extras:** Docker Compose, Vitest API tests, GitHub Actions CI, audit logging, pagination/search/filters
@@ -42,8 +42,24 @@ docker-compose.yml
 
 - Node.js 18+
 - npm 9+
+- A MongoDB Atlas cluster (free tier is fine)
 
-### 1. Install
+### 1. Configure env
+
+Create `server/.env`:
+
+```bash
+DATABASE_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/worknest?retryWrites=true&w=majority"
+JWT_SECRET=replace-with-a-long-random-string
+JWT_EXPIRES_IN=8h
+PORT=4000
+CLIENT_ORIGIN=http://localhost:3000
+NODE_ENV=development
+```
+
+In Atlas, allow your IP (or `0.0.0.0/0` for demos/deployed APIs).
+
+### 2. Install
 
 ```bash
 cd server
@@ -56,7 +72,7 @@ cd ../client
 npm install
 ```
 
-### 2. Run
+### 3. Run
 
 Terminal A:
 
@@ -133,7 +149,7 @@ This starts API on `:4000` and web on `:3000`.
 
 ## Design decisions
 
-1. **SQLite for local setup** — assessment reviewers can clone and run without installing Postgres. The data model is still relational and Prisma-backed.
+1. **MongoDB Atlas** — cloud-hosted so local install is optional and Vercel serverless can share the same database.
 2. **Permission checks live on the API** — UI hides controls for clarity, but every mutation is enforced server-side.
 3. **Managers own projects** — ownership scope avoids a free-for-all where every manager can edit every board.
 4. **Members are write-limited** — they can progress assigned work (status/description) but cannot change priority, title, or assignees.
@@ -146,12 +162,11 @@ This starts API on `:4000` and web on `:3000`.
 1. Import the GitHub repo in Vercel.
 2. Set **Root Directory** to `server`.
 3. Add environment variables:
+   - `DATABASE_URL` = your MongoDB Atlas URI
    - `JWT_SECRET` = any long random string
    - `CLIENT_ORIGIN` = your frontend URL (e.g. `https://work-next.vercel.app`)
-   - `DATABASE_URL` = `file:/tmp/worknest.db` (optional on Vercel; set automatically)
-4. Deploy. Health check: `https://<api-domain>/api/health`
-
-Note: Vercel serverless uses an ephemeral SQLite copy under `/tmp`. Data resets on cold starts; fine for demos.
+4. In Atlas Network Access, allow `0.0.0.0/0` (needed for Vercel).
+5. Deploy. Health check: `https://<api-domain>/api/health`
 
 ### Frontend on Vercel (client folder)
 

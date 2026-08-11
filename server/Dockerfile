@@ -9,7 +9,7 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY server/ ./
-RUN npx prisma generate && npm run build
+RUN npx prisma generate
 
 FROM node:20-alpine
 WORKDIR /app
@@ -19,6 +19,6 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 COPY --from=build /app/prisma ./prisma
-RUN mkdir -p /data
+COPY --from=build /app/api ./api
 EXPOSE 4000
 CMD ["sh", "-c", "npx prisma db push && node prisma/seed.js && node src/index.js"]

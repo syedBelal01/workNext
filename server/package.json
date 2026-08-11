@@ -8,7 +8,7 @@
     "build": "echo No build step",
     "start": "node src/index.js",
     "postinstall": "prisma generate",
-    "vercel-build": "node scripts/prepare-vercel-db.js",
+    "vercel-build": "prisma generate",
     "db:migrate": "prisma db push",
     "db:migrate:dev": "prisma db push",
     "db:seed": "node prisma/seed.js",

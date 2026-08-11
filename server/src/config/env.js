@@ -13,10 +13,7 @@ const onVercel = Boolean(process.env.VERCEL);
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 4000),
-  databaseUrl: requireEnv(
-    "DATABASE_URL",
-    onVercel ? "file:/tmp/worknest.db" : undefined
-  ),
+  databaseUrl: requireEnv("DATABASE_URL"),
   jwtSecret: requireEnv(
     "JWT_SECRET",
     onVercel ? "worknest-vercel-demo-secret-change-me" : undefined

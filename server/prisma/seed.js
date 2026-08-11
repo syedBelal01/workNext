@@ -114,7 +114,7 @@ async function main() {
       actorId: admin.id,
       action: "SEED_COMPLETE",
       entityType: "System",
-      metadata: JSON.stringify({ users: 4, projects: 1 }),
+      metadata: { users: 4, projects: 1 },
     },
   });
 

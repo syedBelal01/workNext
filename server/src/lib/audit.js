@@ -8,7 +8,7 @@ async function writeAuditLog(input) {
         action: input.action,
         entityType: input.entityType,
         entityId: input.entityId ?? null,
-        metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        metadata: input.metadata ?? undefined,
         ipAddress: input.req?.ip ?? null,
       },
     });

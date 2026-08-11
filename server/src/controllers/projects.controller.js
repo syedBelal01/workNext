@@ -212,16 +212,25 @@ const deleteProject = asyncHandler(async (req, res) => {
     await assertCanManageProject(req.user, req.params.id);
   }
 
-  const deleted = await prisma.project.delete({
-    where: { id: req.params.id },
+  const projectId = req.params.id;
+  const existing = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true, name: true },
   });
+  if (!existing) throw new AppError(404, "Project not found");
+
+  await prisma.$transaction([
+    prisma.task.deleteMany({ where: { projectId } }),
+    prisma.projectMember.deleteMany({ where: { projectId } }),
+    prisma.project.delete({ where: { id: projectId } }),
+  ]);
 
   await writeAuditLog({
     req,
     action: "PROJECT_DELETE",
     entityType: "Project",
-    entityId: deleted.id,
-    metadata: { name: deleted.name },
+    entityId: existing.id,
+    metadata: { name: existing.name },
   });
 
   res.json({ success: true, message: "Project deleted" });

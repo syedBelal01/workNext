@@ -19,10 +19,7 @@ const listAuditLogs = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const data = logs.map((log) => ({
-    ...log,
-    metadata: log.metadata ? JSON.parse(log.metadata) : null,
-  }));
+  const data = logs;
 
   res.json({
     success: true,

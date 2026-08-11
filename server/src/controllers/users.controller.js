@@ -145,7 +145,34 @@ const deleteUser = asyncHandler(async (req, res) => {
     throw new AppError(404, "User not found");
   }
 
-  await prisma.user.delete({ where: { id } });
+  const ownedProjects = await prisma.project.findMany({
+    where: { ownerId: id },
+    select: { id: true },
+  });
+  const ownedIds = ownedProjects.map((p) => p.id);
+
+  await prisma.$transaction([
+    prisma.task.deleteMany({
+      where: {
+        OR: [{ createdById: id }, { projectId: { in: ownedIds } }],
+      },
+    }),
+    prisma.projectMember.deleteMany({
+      where: {
+        OR: [{ userId: id }, { projectId: { in: ownedIds } }],
+      },
+    }),
+    prisma.project.deleteMany({ where: { ownerId: id } }),
+    prisma.task.updateMany({
+      where: { assigneeId: id },
+      data: { assigneeId: null },
+    }),
+    prisma.auditLog.updateMany({
+      where: { actorId: id },
+      data: { actorId: null },
+    }),
+    prisma.user.delete({ where: { id } }),
+  ]);
 
   await writeAuditLog({
     req,

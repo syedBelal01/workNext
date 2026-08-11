@@ -8,6 +8,11 @@ on:
 jobs:
   api-tests:
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,14 +25,14 @@ jobs:
         working-directory: server
         run: npx prisma generate && npx prisma db push && node prisma/seed.js
         env:
-          DATABASE_URL: file:./test.db
+          DATABASE_URL: mongodb://127.0.0.1:27017/worknest_test?directConnection=true
           JWT_SECRET: ci-test-secret-key-32-characters!
           CLIENT_ORIGIN: http://localhost:3000
       - name: Test
         working-directory: server
         run: npm test
         env:
-          DATABASE_URL: file:./test.db
+          DATABASE_URL: mongodb://127.0.0.1:27017/worknest_test?directConnection=true
           JWT_SECRET: ci-test-secret-key-32-characters!
           CLIENT_ORIGIN: http://localhost:3000
           NODE_ENV: test

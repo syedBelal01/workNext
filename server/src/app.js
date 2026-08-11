@@ -7,6 +7,15 @@ const { env } = require("./config/env");
 const { errorHandler, notFoundHandler } = require("./middleware/error");
 const routes = require("./routes");
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (env.clientOrigins.includes("*")) return true;
+  if (env.clientOrigins.includes(origin)) return true;
+  // Allow Vercel preview/production frontends during demos
+  if (/\.vercel\.app$/i.test(origin)) return true;
+  return false;
+}
+
 function createApp() {
   const app = express();
 
@@ -14,7 +23,13 @@ function createApp() {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.clientOrigin,
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
+      },
       credentials: true,
     })
   );
@@ -34,6 +49,14 @@ function createApp() {
       },
     })
   );
+
+  app.get("/", (_req, res) => {
+    res.json({
+      success: true,
+      message: "WorkNest API",
+      health: "/api/health",
+    });
+  });
 
   app.use("/api", routes);
   app.use(notFoundHandler);

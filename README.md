@@ -141,11 +141,28 @@ This starts API on `:4000` and web on `:3000`.
 
 ## Deploy notes
 
-For a public demo:
+### API on Vercel (server folder)
 
-1. Host the API (Render / Railway / Fly) with a persistent volume for the SQLite file, or switch `DATABASE_URL` to Postgres and change the Prisma provider.
-2. Host the Next.js app on Vercel and set `NEXT_PUBLIC_API_URL` to the public API URL.
-3. Set a long random `JWT_SECRET` and update `CLIENT_ORIGIN` / CORS accordingly.
+1. Import the GitHub repo in Vercel.
+2. Set **Root Directory** to `server`.
+3. Add environment variables:
+   - `JWT_SECRET` = any long random string
+   - `CLIENT_ORIGIN` = your frontend URL (e.g. `https://work-next.vercel.app`)
+   - `DATABASE_URL` = `file:/tmp/worknest.db` (optional on Vercel; set automatically)
+4. Deploy. Health check: `https://<api-domain>/api/health`
+
+Note: Vercel serverless uses an ephemeral SQLite copy under `/tmp`. Data resets on cold starts; fine for demos.
+
+### Frontend on Vercel (client folder)
+
+1. New Vercel project from the same repo
+2. Root Directory: `client`
+3. Env: `NEXT_PUBLIC_API_URL` = `https://<api-domain>/api`
+4. Deploy
+
+### General
+
+Set a strong `JWT_SECRET` for anything beyond local demos. Cors already allows `*.vercel.app` origins so previews work.
 
 ## License
 

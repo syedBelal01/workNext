@@ -13,7 +13,10 @@ const onVercel = Boolean(process.env.VERCEL);
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 4000),
-  databaseUrl: requireEnv("DATABASE_URL"),
+  // Read lazily so a missing var doesn't crash module import before we can respond
+  get databaseUrl() {
+    return requireEnv("DATABASE_URL");
+  },
   jwtSecret: requireEnv(
     "JWT_SECRET",
     onVercel ? "worknest-vercel-demo-secret-change-me" : undefined

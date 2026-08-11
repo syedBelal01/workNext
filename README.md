@@ -1,55 +1,129 @@
 # WorkNest
 
-Project and task tracker built to demonstrate role-based access control in a realistic team workflow.
+WorkNest is a full-stack project and task tracker with **role-based access control (RBAC)**.
 
-Managers own delivery. Members update the work on their plate. Admins keep users and audit history in check.
+Admins manage people and audit history.  
+Managers own projects and assign work.  
+Members update only the tasks assigned to them.
 
-## Stack
+---
 
-- **Frontend:** Next.js 14 (React.js, App Router, JavaScript)
-- **Backend:** Node.js + Express (JavaScript)
-- **Database:** MongoDB Atlas via Prisma
-- **Auth:** JWT + bcrypt
-- **Validation:** Zod
-- **Extras:** Docker Compose, Vitest API tests, GitHub Actions CI, audit logging, pagination/search/filters
+## Live demo
 
-## Roles
+| Layer | URL |
+|---|---|
+| Frontend | https://work-next-client.vercel.app/ |
+| API health | https://work-next-server.vercel.app/api/health |
 
-| Capability | Admin | Manager | Member |
+---
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 14 (App Router), React 18, JavaScript |
+| Backend | Node.js, Express, JavaScript |
+| Database | MongoDB Atlas + Prisma |
+| Auth | JWT + bcrypt |
+| Validation | Zod |
+| Tests | Vitest + Supertest |
+| CI | GitHub Actions |
+| Deploy | Vercel (client + server) |
+
+---
+
+## Features
+
+- Login / logout with JWT
+- 3 roles: **ADMIN**, **MANAGER**, **MEMBER**
+- Protected routes (UI + API)
+- Project CRUD
+- Task CRUD with assignee
+- Members can update only **status** and **description** on assigned tasks
+- Admin user management
+- Admin audit log
+- Search, filters, pagination
+- Seed data for quick demo
+
+---
+
+## Who can do what
+
+| Action | Admin | Manager | Member |
 |---|---|---|---|
-| Sign in / out | yes | yes | yes |
-| Manage users | yes | no | no |
-| View audit logs | yes | no | no |
-| Create / edit / delete projects | yes | owned projects | no |
-| View projects | all | member/owned | assigned only |
-| Create tasks | yes | owned projects | on joined projects |
-| Assign priority / reassign | yes | owned projects | no |
-| Update task status | yes | owned projects | assigned tasks only |
-| Delete tasks | yes | owned projects | no |
+| Sign in / out | Yes | Yes | Yes |
+| View dashboard | Yes | Yes | Yes |
+| Manage users | Yes | No | No |
+| View audit logs | Yes | No | No |
+| Create projects | Yes | Yes | No |
+| Edit / delete projects | All | Own only | No |
+| View projects | All | Own / member / assigned | Own / member / assigned |
+| View tasks | All | In accessible projects | **Assigned to them only** |
+| Create tasks | Yes | Own projects | Joined projects (self-assign only) |
+| Reassign / set priority | Yes | Own projects | No |
+| Update task status | Yes | Own projects | Assigned tasks only |
+| Delete tasks | Yes | Own projects | No |
 
-## Project layout
+Rules are enforced on the **API**. The UI only hides buttons for a cleaner experience.
 
+---
+
+## Repo structure
+
+```text
+worknest/
+├── client/                 # Next.js frontend
+├── server/                 # Express API + Prisma
+│   ├── prisma/             # schema + seed
+│   ├── src/                # routes, controllers, rbac
+│   └── tests/              # RBAC API tests
+├── .github/workflows/      # CI
+└── README.md
 ```
-client/    Next.js UI
-server/    Express API + Prisma
-docker-compose.yml
-.github/workflows/ci.yml
+
+---
+
+## Demo accounts
+
+Password for **all** users:
+
+```text
+Password123!
 ```
 
-## Quick start
+| Email | Role |
+|---|---|
+| `admin@worknest.local` | ADMIN |
+| `manager@worknest.local` | MANAGER |
+| `member@worknest.local` | MEMBER |
+| `dev@worknest.local` | MEMBER |
 
-### Prerequisites
+Seed also creates sample project **Customer Portal Revamp** with tasks.
 
-- Node.js 18+
+---
+
+## Local setup
+
+### Requirements
+
+- Node.js 18+ (20 recommended)
 - npm 9+
-- A MongoDB Atlas cluster (free tier is fine)
+- MongoDB Atlas cluster (free tier works)
 
-### 1. Configure env
+### 1) Clone and install
+
+```bash
+git clone https://github.com/syedBelal01/workNext.git
+cd workNext
+npm install
+```
+
+### 2) Backend env
 
 Create `server/.env`:
 
-```bash
-DATABASE_URL="mongodb+srv://<user>:<password>@<cluster>.mongodb.net/worknest?retryWrites=true&w=majority"
+```env
+DATABASE_URL="mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/worknest?retryWrites=true&w=majority"
 JWT_SECRET=replace-with-a-long-random-string
 JWT_EXPIRES_IN=8h
 PORT=4000
@@ -57,76 +131,112 @@ CLIENT_ORIGIN=http://localhost:3000
 NODE_ENV=development
 ```
 
-In Atlas, allow your IP (or `0.0.0.0/0` for demos/deployed APIs).
+In MongoDB Atlas → **Network Access**, allow your IP (or `0.0.0.0/0` for demo/deploy).
 
-### 2. Install
+### 3) Frontend env
+
+Create `client/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:4000/api
+```
+
+### 4) Database + seed
 
 ```bash
 cd server
-npm install
 npx prisma generate
 npx prisma db push
 node prisma/seed.js
-
-cd ../client
-npm install
+cd ..
 ```
 
-### 3. Run
+### 5) Run app
 
-Terminal A:
+From repo root:
 
 ```bash
-cd server
 npm run dev
 ```
 
-Terminal B:
+Or two terminals:
 
 ```bash
+# Terminal 1
+cd server
+npm run dev
+
+# Terminal 2
 cd client
 npm run dev
 ```
 
-- App: http://localhost:3000
-- API: http://localhost:4000/api/health
+Open:
 
-### Environment
+- App → http://localhost:3000  
+- API health → http://localhost:4000/api/health  
 
-Copy examples if you want to tweak values:
+Login with any demo account above.
 
-- `server/.env`
-- `client/.env.local`
+---
 
-Defaults already point the UI at `http://localhost:4000/api`.
+## Useful scripts
 
-## Test accounts
+### Root
 
-Password for all seeded users: `Password123!`
+```bash
+npm run dev          # API + web together
+npm run build        # build both
+npm test             # API tests
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
 
-| Email | Role |
-|---|---|
-| admin@worknest.local | ADMIN |
-| manager@worknest.local | MANAGER |
-| member@worknest.local | MEMBER |
-| dev@worknest.local | MEMBER |
+### Server only
+
+```bash
+cd server
+npm run dev
+npm test
+npx prisma db push
+node prisma/seed.js
+```
+
+### Client only
+
+```bash
+cd client
+npm run dev
+npm run build
+```
+
+---
 
 ## API overview
 
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-- `GET /api/dashboard`
-- `GET|POST /api/users` (admin)
-- `PATCH|DELETE /api/users/:id` (admin)
-- `GET|POST /api/projects`
-- `GET|PATCH|DELETE /api/projects/:id`
-- `GET /api/tasks`
-- `POST /api/projects/:projectId/tasks`
-- `PATCH|DELETE /api/tasks/:id`
-- `GET /api/audit-logs` (admin)
+Base URL (local): `http://localhost:4000/api`
 
-List endpoints accept `page`, `limit`, `search`, and entity-specific filters (`status`, `priority`, `role`).
+| Method | Endpoint | Access |
+|---|---|---|
+| GET | `/health` | Public |
+| POST | `/auth/login` | Public |
+| GET | `/auth/me` | Auth |
+| POST | `/auth/logout` | Auth |
+| GET | `/dashboard` | Auth |
+| GET / POST | `/users` | Admin |
+| PATCH / DELETE | `/users/:id` | Admin |
+| GET | `/users/assignable` | Admin, Manager |
+| GET / POST | `/projects` | Auth / Admin+Manager |
+| GET / PATCH / DELETE | `/projects/:id` | Scoped by role |
+| GET | `/tasks` | Auth (members = assigned only) |
+| POST | `/projects/:projectId/tasks` | Scoped by role |
+| PATCH / DELETE | `/tasks/:id` | Scoped by role |
+| GET | `/audit-logs` | Admin |
+
+List APIs support `page`, `limit`, `search`, and filters like `status`, `priority`, `role`.
+
+---
 
 ## Tests
 
@@ -137,47 +247,76 @@ node prisma/seed.js
 npm test
 ```
 
-Coverage focuses on the RBAC boundaries: forbidden routes, project visibility, and member update limits.
+What is covered:
 
-## Docker
+- Invalid login rejected
+- Members blocked from user list
+- Admin can list users
+- Members cannot create projects
+- Manager can create project and invite member
+- Members cannot change priority
+- Members can update status on assigned tasks
+- Audit logs are admin-only
 
-```bash
-docker compose up --build
+CI runs the same checks on every push to `master` / `main`.
+
+---
+
+## Deploy on Vercel
+
+You need **two** Vercel projects from the same GitHub repo.
+
+### A) API (`server`)
+
+1. Import repo → Root Directory = `server`
+2. Environment variables:
+   - `DATABASE_URL` = MongoDB Atlas URI
+   - `JWT_SECRET` = long random secret
+   - `CLIENT_ORIGIN` = your frontend URL (example: `https://your-app.vercel.app`)
+3. Atlas Network Access → allow `0.0.0.0/0`
+4. Deploy  
+5. Check: `https://<api-domain>/api/health`
+
+Current API example:  
+`https://work-next-server.vercel.app/api/health`
+
+### B) Frontend (`client`)
+
+1. Import same repo → Root Directory = `client`
+2. Environment variable:
+   - `NEXT_PUBLIC_API_URL` = `https://<api-domain>/api`
+3. Deploy
+
+Example:
+
+```env
+NEXT_PUBLIC_API_URL=https://work-next-server.vercel.app/api
 ```
 
-This starts API on `:4000` and web on `:3000`.
+---
 
-## Design decisions
+## Design choices
 
-1. **MongoDB Atlas** — cloud-hosted so local install is optional and Vercel serverless can share the same database.
-2. **Permission checks live on the API** — UI hides controls for clarity, but every mutation is enforced server-side.
-3. **Managers own projects** — ownership scope avoids a free-for-all where every manager can edit every board.
-4. **Members are write-limited** — they can progress assigned work (status/description) but cannot change priority, title, or assignees.
-5. **Audit log is append-only activity history** — useful for admins reviewing login and mutation events.
+1. **Server-side RBAC** — every protected action is checked in the API, not only in the UI.
+2. **Manager ownership** — managers manage projects they own, not every project in the system.
+3. **Member limits** — members progress assigned work (status/description) without changing priority, title, or assignee.
+4. **Assign = access** — when a task is assigned, that user is added to the project and can see that work.
+5. **MongoDB Atlas** — same database for local, CI, and Vercel.
+6. **Audit log** — admins can review important activity.
 
-## Deploy notes
+---
 
-### API on Vercel (server folder)
+## Troubleshooting
 
-1. Import the GitHub repo in Vercel.
-2. Set **Root Directory** to `server`.
-3. Add environment variables:
-   - `DATABASE_URL` = your MongoDB Atlas URI
-   - `JWT_SECRET` = any long random string
-   - `CLIENT_ORIGIN` = your frontend URL (e.g. `https://work-next.vercel.app`)
-4. In Atlas Network Access, allow `0.0.0.0/0` (needed for Vercel).
-5. Deploy. Health check: `https://<api-domain>/api/health`
+| Problem | Fix |
+|---|---|
+| Login fails / blank API | Confirm API is up (`/api/health`) and `NEXT_PUBLIC_API_URL` is correct |
+| “One or more members are invalid” / session issues | Sign out and sign in again (old JWT after reseed) |
+| DB connection errors | Check Atlas URI + Network Access (`0.0.0.0/0` for Vercel) |
+| Assigned member cannot see task | Assign from project page; assignee should appear under Tasks after refresh |
+| Prisma transaction / Mongo errors in CI | MongoDB must run as a replica set (handled in GitHub Actions) |
 
-### Frontend on Vercel (client folder)
-
-1. New Vercel project from the same repo
-2. Root Directory: `client`
-3. Env: `NEXT_PUBLIC_API_URL` = `https://<api-domain>/api`
-4. Deploy
-
-### General
-
-Set a strong `JWT_SECRET` for anything beyond local demos. Cors already allows `*.vercel.app` origins so previews work.
+---
 
 ## License
 

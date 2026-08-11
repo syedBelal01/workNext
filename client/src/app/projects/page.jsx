@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { api, getPaginated } from "@/lib/api";
+import { api, getPaginated, invalidateApiCache } from "@/lib/api";
 import { PROJECT_STATUSES, formatLabel } from "@/lib/types";
 import { useAuth } from "@/context/auth-context";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export default function ProjectsPage() {
-  const { hasRole } = useAuth();
+  const { hasRole, logout } = useAuth();
   const canManage = hasRole("ADMIN", "MANAGER");
   const [projects, setProjects] = useState([]);
   const [page, setPage] = useState(1);
@@ -18,6 +18,8 @@ export default function ProjectsPage() {
   const debouncedSearch = useDebouncedValue(search, 350);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({
@@ -47,21 +49,47 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!canManage) return;
-    api.get("/users/assignable").then(setUsers).catch(() => undefined);
-  }, [canManage]);
+  async function openCreateModal() {
+    setFormError("");
+    setError("");
+    setForm({ name: "", description: "", status: "ACTIVE", memberIds: [] });
+    setOpen(true);
+    try {
+      invalidateApiCache();
+      const list = await api.get("/users/assignable", undefined, {
+        skipCache: true,
+      });
+      setUsers(list);
+    } catch {
+      setUsers([]);
+    }
+  }
 
   async function createProject(event) {
     event.preventDefault();
+    setSaving(true);
+    setFormError("");
     try {
-      await api.post("/projects", form);
+      await api.post("/projects", {
+        ...form,
+        memberIds: form.memberIds.filter(Boolean),
+      });
       setOpen(false);
       setForm({ name: "", description: "", status: "ACTIVE", memberIds: [] });
       setPage(1);
+      invalidateApiCache();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create project");
+      const message =
+        err instanceof Error ? err.message : "Could not create project";
+      setFormError(message);
+      setError(message);
+      if (message.toLowerCase().includes("session expired")) {
+        await logout();
+        window.location.href = "/login";
+      }
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -109,7 +137,7 @@ export default function ProjectsPage() {
           </select>
         </div>
         {canManage ? (
-          <button className="btn" type="button" onClick={() => setOpen(true)}>
+          <button className="btn" type="button" onClick={openCreateModal}>
             New project
           </button>
         ) : null}
@@ -238,7 +266,7 @@ export default function ProjectsPage() {
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="members">Members</label>
+                <label htmlFor="members">Members (optional)</label>
                 <select
                   id="members"
                   multiple
@@ -259,10 +287,14 @@ export default function ProjectsPage() {
                     </option>
                   ))}
                 </select>
+                <span className="muted">
+                  Hold Ctrl/Cmd to select multiple. You are added as owner automatically.
+                </span>
               </div>
+              {formError ? <div className="error-box">{formError}</div> : null}
               <div className="row-actions">
-                <button className="btn" type="submit">
-                  Create
+                <button className="btn" type="submit" disabled={saving}>
+                  {saving ? "Creating…" : "Create"}
                 </button>
                 <button
                   className="btn secondary"

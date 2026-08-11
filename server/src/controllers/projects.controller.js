@@ -95,25 +95,47 @@ const createProject = asyncHandler(async (req, res) => {
   }
 
   const body = projectSchema.parse(req.body);
-  const memberIds = Array.from(
-    new Set([...(body.memberIds ?? []), req.user.id])
-  );
 
-  const users = await prisma.user.findMany({
-    where: { id: { in: memberIds }, isActive: true },
-    select: { id: true },
+  const creator = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { id: true, isActive: true },
   });
 
-  if (users.length !== memberIds.length) {
-    throw new AppError(400, "One or more members are invalid");
+  if (!creator?.isActive) {
+    throw new AppError(
+      401,
+      "Session expired. Please sign out and sign in again."
+    );
   }
+
+  const requestedMemberIds = Array.from(
+    new Set((body.memberIds || []).filter(Boolean))
+  );
+
+  const selectedUsers = requestedMemberIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: requestedMemberIds }, isActive: true },
+        select: { id: true },
+      })
+    : [];
+
+  if (selectedUsers.length !== requestedMemberIds.length) {
+    throw new AppError(
+      400,
+      "One or more selected members are invalid. Close the form and try again."
+    );
+  }
+
+  const memberIds = Array.from(
+    new Set([creator.id, ...selectedUsers.map((user) => user.id)])
+  );
 
   const project = await prisma.project.create({
     data: {
       name: body.name,
       description: body.description ?? null,
       status: body.status ?? "PLANNING",
-      ownerId: req.user.id,
+      ownerId: creator.id,
       startDate: body.startDate ? new Date(body.startDate) : null,
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       members: {
@@ -123,7 +145,7 @@ const createProject = asyncHandler(async (req, res) => {
     include: projectInclude,
   });
 
-  await writeAuditLog({
+  void writeAuditLog({
     req,
     action: "PROJECT_CREATE",
     entityType: "Project",

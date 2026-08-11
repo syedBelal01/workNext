@@ -3,6 +3,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const compression = require("compression");
 const { env } = require("./config/env");
 const { errorHandler, notFoundHandler } = require("./middleware/error");
 const routes = require("./routes");
@@ -11,7 +12,6 @@ function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (env.clientOrigins.includes("*")) return true;
   if (env.clientOrigins.includes(origin)) return true;
-  // Allow Vercel preview/production frontends during demos
   if (/\.vercel\.app$/i.test(origin)) return true;
   return false;
 }
@@ -20,6 +20,7 @@ function createApp() {
   const app = express();
 
   app.set("trust proxy", 1);
+  app.use(compression());
   app.use(helmet());
   app.use(
     cors({
@@ -34,7 +35,9 @@ function createApp() {
     })
   );
   app.use(express.json({ limit: "1mb" }));
-  app.use(morgan(env.isTest ? "tiny" : "dev"));
+  if (!env.onVercel) {
+    app.use(morgan(env.isTest ? "tiny" : "dev"));
+  }
 
   app.use(
     "/api/auth/login",

@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { api, getPaginated } from "@/lib/api";
 import { PROJECT_STATUSES, formatLabel } from "@/lib/types";
 import { useAuth } from "@/context/auth-context";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export default function ProjectsPage() {
   const { hasRole } = useAuth();
@@ -14,6 +15,7 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 350);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
@@ -30,7 +32,7 @@ export default function ProjectsPage() {
       const result = await getPaginated("/projects", {
         page,
         limit: 8,
-        search,
+        search: debouncedSearch,
         status,
       });
       setProjects(result.data);
@@ -39,7 +41,7 @@ export default function ProjectsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load projects");
     }
-  }, [page, search, status]);
+  }, [page, debouncedSearch, status]);
 
   useEffect(() => {
     load();

@@ -15,15 +15,16 @@ async function getAccessibleProjectIds(user) {
     return "ALL";
   }
 
-  const memberships = await prisma.projectMember.findMany({
-    where: { userId: user.id },
-    select: { projectId: true },
-  });
-
-  const owned = await prisma.project.findMany({
-    where: { ownerId: user.id },
-    select: { id: true },
-  });
+  const [memberships, owned] = await Promise.all([
+    prisma.projectMember.findMany({
+      where: { userId: user.id },
+      select: { projectId: true },
+    }),
+    prisma.project.findMany({
+      where: { ownerId: user.id },
+      select: { id: true },
+    }),
+  ]);
 
   const ids = new Set();
   memberships.forEach((m) => ids.add(m.projectId));

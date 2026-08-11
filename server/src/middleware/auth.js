@@ -1,17 +1,21 @@
 const jwt = require("jsonwebtoken");
 const { env } = require("../config/env");
 const { AppError } = require("../lib/errors");
-const { prisma } = require("../lib/prisma");
 
 function signToken(user) {
   return jwt.sign(
-    { sub: user.id, email: user.email, role: user.role },
+    {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    },
     env.jwtSecret,
     { expiresIn: env.jwtExpiresIn }
   );
 }
 
-async function authenticate(req, _res, next) {
+function authenticate(req, _res, next) {
   try {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) {
@@ -27,20 +31,16 @@ async function authenticate(req, _res, next) {
       throw new AppError(401, "Invalid or expired token");
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, email: true, name: true, role: true, isActive: true },
-    });
-
-    if (!user || !user.isActive) {
-      throw new AppError(401, "Account is inactive or does not exist");
+    if (!payload?.sub || !payload?.role) {
+      throw new AppError(401, "Invalid token payload");
     }
 
+    // Trust signed JWT claims — avoids a DB round-trip on every request
     req.user = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name || "",
+      role: payload.role,
     };
 
     next();

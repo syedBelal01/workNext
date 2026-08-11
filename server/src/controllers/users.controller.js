@@ -69,7 +69,7 @@ const createUser = asyncHandler(async (req, res) => {
     throw new AppError(409, "A user with this email already exists");
   }
 
-  const passwordHash = await bcrypt.hash(body.password, 12);
+  const passwordHash = await bcrypt.hash(body.password, 10);
   const user = await prisma.user.create({
     data: {
       email,
@@ -108,7 +108,7 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   const passwordHash = body.password
-    ? await bcrypt.hash(body.password, 12)
+    ? await bcrypt.hash(body.password, 10)
     : undefined;
 
   const user = await prisma.user.update({

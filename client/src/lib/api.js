@@ -3,7 +3,6 @@ function resolveApiUrl() {
     return process.env.NEXT_PUBLIC_API_URL;
   }
 
-  // On Vercel frontends, never fall back to localhost (browsers block it).
   if (typeof window !== "undefined" && /\.vercel\.app$/i.test(window.location.hostname)) {
     return "https://work-next-server.vercel.app/api";
   }
@@ -11,9 +10,10 @@ function resolveApiUrl() {
   return "http://localhost:4000/api";
 }
 
-const API_URL = resolveApiUrl();
-
 const TOKEN_KEY = "worknest_token";
+const USER_KEY = "worknest_user";
+const getCache = new Map();
+const GET_CACHE_TTL_MS = 8000;
 
 export class ApiError extends Error {
   constructor(status, message, details) {
@@ -34,10 +34,30 @@ export function setToken(token) {
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  getCache.clear();
+}
+
+export function getCachedUser() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUser(user) {
+  if (!user) {
+    localStorage.removeItem(USER_KEY);
+    return;
+  }
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 function buildUrl(path, query) {
-  const url = new URL(`${API_URL}${path}`);
+  const url = new URL(`${resolveApiUrl()}${path}`);
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== "") {
@@ -48,13 +68,31 @@ function buildUrl(path, query) {
   return url.toString();
 }
 
+function cacheKey(path, query) {
+  return buildUrl(path, query);
+}
+
+export function invalidateApiCache() {
+  getCache.clear();
+}
+
 async function request(path, options = {}) {
+  const method = options.method || "GET";
   const headers = { "Content-Type": "application/json" };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(buildUrl(path, options.query), {
-    method: options.method || "GET",
+  const url = buildUrl(path, options.query);
+
+  if (method === "GET" && !options.skipCache) {
+    const hit = getCache.get(url);
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.data;
+    }
+  }
+
+  const response = await fetch(url, {
+    method,
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -67,11 +105,20 @@ async function request(path, options = {}) {
       payload.errors || payload.details
     );
   }
-  return payload.data ?? payload;
+
+  const data = payload.data ?? payload;
+
+  if (method === "GET") {
+    getCache.set(url, { data, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+  } else {
+    getCache.clear();
+  }
+
+  return data;
 }
 
 export const api = {
-  get: (path, query) => request(path, { query }),
+  get: (path, query, opts) => request(path, { query, ...opts }),
   post: (path, body) => request(path, { method: "POST", body }),
   patch: (path, body) => request(path, { method: "PATCH", body }),
   delete: (path) => request(path, { method: "DELETE" }),
@@ -82,10 +129,23 @@ export async function getPaginated(path, query) {
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(buildUrl(path, query), { headers });
+  const url = buildUrl(path, query);
+  const hit = getCache.get(url);
+  if (hit && hit.expiresAt > Date.now() && hit.paginated) {
+    return hit.data;
+  }
+
+  const response = await fetch(url, { headers });
   const payload = await response.json();
   if (!response.ok) {
     throw new ApiError(response.status, payload.message || "Request failed");
   }
-  return { data: payload.data, meta: payload.meta };
+
+  const data = { data: payload.data, meta: payload.meta };
+  getCache.set(url, {
+    data,
+    paginated: true,
+    expiresAt: Date.now() + GET_CACHE_TTL_MS,
+  });
+  return data;
 }

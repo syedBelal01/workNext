@@ -19,11 +19,9 @@ const listAuditLogs = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const data = logs;
-
   res.json({
     success: true,
-    data,
+    data: logs,
     meta: {
       page: query.page,
       limit: query.limit,
@@ -45,36 +43,36 @@ const getDashboard = asyncHandler(async (req, res) => {
       ? { ...taskFilter, assigneeId: req.user.id }
       : taskFilter;
 
-  const [projectCount, taskCount, openTasks, doneTasks, recentTasks, allUsers] =
-    await Promise.all([
-      prisma.project.count({ where: projectFilter }),
-      prisma.task.count({ where: memberTaskFilter }),
-      prisma.task.count({
-        where: {
-          ...memberTaskFilter,
-          status: { in: ["TODO", "IN_PROGRESS", "IN_REVIEW", "BLOCKED"] },
-        },
-      }),
-      prisma.task.count({
-        where: { ...memberTaskFilter, status: "DONE" },
-      }),
-      prisma.task.findMany({
-        where: memberTaskFilter,
-        include: {
-          project: { select: { id: true, name: true } },
-          assignee: { select: { id: true, name: true } },
-        },
-        orderBy: { updatedAt: "desc" },
-        take: 5,
-      }),
-      isAdmin(req.user)
-        ? prisma.user.findMany({ select: { role: true } })
-        : Promise.resolve([]),
-    ]);
+  // Prefer fewer round-trips: load compact task rows once and derive counts
+  const [projectCount, tasks, usersByRoleRaw] = await Promise.all([
+    prisma.project.count({ where: projectFilter }),
+    prisma.task.findMany({
+      where: memberTaskFilter,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        updatedAt: true,
+        project: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    isAdmin(req.user)
+      ? prisma.user.findMany({ select: { role: true } })
+      : Promise.resolve([]),
+  ]);
+
+  let openTasks = 0;
+  let doneTasks = 0;
+  for (const task of tasks) {
+    if (task.status === "DONE") doneTasks += 1;
+    else openTasks += 1;
+  }
 
   const roleMap = new Map();
-  allUsers.forEach((user) => {
-    roleMap.set(user.role, (roleMap.get(user.role) ?? 0) + 1);
+  usersByRoleRaw.forEach((user) => {
+    roleMap.set(user.role, (roleMap.get(user.role) || 0) + 1);
   });
 
   res.json({
@@ -82,11 +80,11 @@ const getDashboard = asyncHandler(async (req, res) => {
     data: {
       counts: {
         projects: projectCount,
-        tasks: taskCount,
+        tasks: tasks.length,
         openTasks,
         doneTasks,
       },
-      recentTasks,
+      recentTasks: tasks.slice(0, 5),
       usersByRole: Array.from(roleMap.entries()).map(([role, count]) => ({
         role,
         count,

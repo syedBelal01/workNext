@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { api, getPaginated } from "@/lib/api";
 import { TASK_PRIORITIES, TASK_STATUSES, formatLabel } from "@/lib/types";
 import { useAuth } from "@/context/auth-context";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export default function TasksPage() {
   const { hasRole, user } = useAuth();
@@ -15,6 +16,7 @@ export default function TasksPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 350);
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
   const [error, setError] = useState("");
@@ -24,7 +26,7 @@ export default function TasksPage() {
       const result = await getPaginated("/tasks", {
         page,
         limit: 10,
-        search,
+        search: debouncedSearch,
         status,
         priority,
       });
@@ -34,7 +36,7 @@ export default function TasksPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks");
     }
-  }, [page, search, status, priority]);
+  }, [page, debouncedSearch, status, priority]);
 
   useEffect(() => {
     load();

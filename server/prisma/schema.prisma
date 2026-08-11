@@ -22,6 +22,8 @@ model User {
   assignedTasks Task[]          @relation("TaskAssignee")
   createdTasks  Task[]          @relation("TaskCreator")
   auditLogs     AuditLog[]
+
+  @@index([role])
 }
 
 model Project {
@@ -38,6 +40,9 @@ model Project {
   owner   User            @relation("ProjectOwner", fields: [ownerId], references: [id])
   members ProjectMember[]
   tasks   Task[]
+
+  @@index([ownerId])
+  @@index([status])
 }
 
 model ProjectMember {
@@ -50,6 +55,7 @@ model ProjectMember {
   user    User    @relation(fields: [userId], references: [id])
 
   @@unique([projectId, userId])
+  @@index([userId])
 }
 
 model Task {
@@ -68,6 +74,10 @@ model Task {
   project   Project @relation(fields: [projectId], references: [id])
   assignee  User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
   createdBy User    @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
 }
 
 model AuditLog {

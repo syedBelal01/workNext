@@ -6,20 +6,19 @@ const { authenticate, signToken } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/error");
 const { loginSchema } = require("../validators/schemas");
 
-const publicUserSelect = {
-  id: true,
-  email: true,
-  name: true,
-  role: true,
-  isActive: true,
-  createdAt: true,
-};
-
 const login = asyncHandler(async (req, res) => {
   const body = loginSchema.parse(req.body);
 
   const user = await prisma.user.findUnique({
     where: { email: body.email.toLowerCase() },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      isActive: true,
+      passwordHash: true,
+    },
   });
 
   if (!user || !user.isActive) {
@@ -40,7 +39,8 @@ const login = asyncHandler(async (req, res) => {
 
   const token = signToken(authUser);
 
-  await writeAuditLog({
+  // Don't block login response on audit write
+  void writeAuditLog({
     actorId: user.id,
     action: "AUTH_LOGIN",
     entityType: "User",
@@ -60,23 +60,23 @@ const login = asyncHandler(async (req, res) => {
 const me = [
   authenticate,
   asyncHandler(async (req, res) => {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: publicUserSelect,
+    res.json({
+      success: true,
+      data: {
+        id: req.user.id,
+        email: req.user.email,
+        name: req.user.name,
+        role: req.user.role,
+        isActive: true,
+      },
     });
-
-    if (!user) {
-      throw new AppError(404, "User not found");
-    }
-
-    res.json({ success: true, data: user });
   }),
 ];
 
 const logout = [
   authenticate,
   asyncHandler(async (req, res) => {
-    await writeAuditLog({
+    void writeAuditLog({
       actorId: req.user.id,
       action: "AUTH_LOGOUT",
       entityType: "User",

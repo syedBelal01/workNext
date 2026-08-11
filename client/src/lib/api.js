@@ -1,5 +1,17 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+function resolveApiUrl() {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
+  // On Vercel frontends, never fall back to localhost (browsers block it).
+  if (typeof window !== "undefined" && /\.vercel\.app$/i.test(window.location.hostname)) {
+    return "https://work-next-server.vercel.app/api";
+  }
+
+  return "http://localhost:4000/api";
+}
+
+const API_URL = resolveApiUrl();
 
 const TOKEN_KEY = "worknest_token";
 

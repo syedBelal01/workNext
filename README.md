@@ -23,15 +23,15 @@ Members update only the tasks assigned to them.
 |---|---|
 | Frontend | Next.js 14 (App Router), React 18, JavaScript |
 | Backend | Node.js, Express, JavaScript |
-| Database | **MongoDB Atlas** (data storage) |
-| ORM / data access | **Prisma** (schema + queries from the API) |
+| Database | **MongoDB Atlas** |
+| ODM | **Mongoose** (schemas + queries) |
 | Auth | JWT + bcrypt |
 | Validation | Zod |
 | Tests | Vitest + Supertest |
 | CI | GitHub Actions |
 | Deploy | Vercel (client + server) |
 
-**MongoDB vs Prisma:** MongoDB stores the data. Prisma is the bridge between Express and MongoDB (`prisma.user.findMany()`, models in `server/prisma/schema.prisma`). They work together — Prisma is not a database.
+**MongoDB vs Mongoose:** MongoDB stores the data. Mongoose is the Node library used to define models and talk to MongoDB from the API.
 
 ---
 
@@ -76,9 +76,9 @@ Rules are enforced on the **API**. The UI only hides buttons for a cleaner exper
 ```text
 worknest/
 ├── client/                 # Next.js frontend
-├── server/                 # Express API + Prisma
-│   ├── prisma/             # schema + seed
-│   ├── src/                # routes, controllers, rbac
+├── server/                 # Express API + Mongoose
+│   ├── seed.js             # demo data
+│   ├── src/                # routes, controllers, models, rbac
 │   └── tests/              # RBAC API tests
 ├── .github/workflows/      # CI
 └── README.md
@@ -148,9 +148,7 @@ NEXT_PUBLIC_API_URL=http://localhost:4000/api
 
 ```bash
 cd server
-npx prisma generate
-npx prisma db push
-node prisma/seed.js
+npm run db:seed
 cd ..
 ```
 
@@ -191,9 +189,7 @@ Login with any demo account above.
 npm run dev          # API + web together
 npm run build        # build both
 npm test             # API tests
-npm run db:generate
-npm run db:migrate
-npm run db:seed
+npm run db:seed      # seed MongoDB demo users/projects
 ```
 
 ### Server only
@@ -202,8 +198,7 @@ npm run db:seed
 cd server
 npm run dev
 npm test
-npx prisma db push
-node prisma/seed.js
+npm run db:seed
 ```
 
 ### Client only
@@ -245,8 +240,7 @@ List APIs support `page`, `limit`, `search`, and filters like `status`, `priorit
 
 ```bash
 cd server
-npx prisma db push
-node prisma/seed.js
+npm run db:seed
 npm test
 ```
 
@@ -304,7 +298,7 @@ NEXT_PUBLIC_API_URL=https://work-next-server.vercel.app/api
 2. **Manager ownership** — managers manage projects they own, not every project in the system.
 3. **Member limits** — members progress assigned work (status/description) without changing priority, title, or assignee.
 4. **Assign = access** — when a task is assigned, that user is added to the project and can see that work.
-5. **MongoDB Atlas** — same database for local, CI, and Vercel.
+5. **MongoDB Atlas + Mongoose** — cloud MongoDB for storage; Mongoose models for the API.
 6. **Audit log** — admins can review important activity.
 
 ---
@@ -317,7 +311,7 @@ NEXT_PUBLIC_API_URL=https://work-next-server.vercel.app/api
 | “One or more members are invalid” / session issues | Sign out and sign in again (old JWT after reseed) |
 | DB connection errors | Check Atlas URI + Network Access (`0.0.0.0/0` for Vercel) |
 | Assigned member cannot see task | Assign from project page; assignee should appear under Tasks after refresh |
-| Prisma transaction / Mongo errors in CI | MongoDB must run as a replica set (handled in GitHub Actions) |
+| Mongo / connection errors in CI | CI starts a MongoDB replica set automatically |
 
 ---
 

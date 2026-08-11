@@ -1,6 +1,12 @@
 const { Role } = require("./constants");
 const { AppError } = require("./errors");
-const { prisma } = require("./prisma");
+const {
+  User,
+  Project,
+  ProjectMember,
+  Task,
+  toObjectId,
+} = require("../models");
 
 function isAdmin(user) {
   return user.role === Role.ADMIN;
@@ -15,53 +21,45 @@ async function getAccessibleProjectIds(user) {
     return "ALL";
   }
 
+  const userId = toObjectId(user.id);
+
   const [memberships, owned, assigned] = await Promise.all([
-    prisma.projectMember.findMany({
-      where: { userId: user.id },
-      select: { projectId: true },
-    }),
-    prisma.project.findMany({
-      where: { ownerId: user.id },
-      select: { id: true },
-    }),
-    prisma.task.findMany({
-      where: { assigneeId: user.id },
-      select: { projectId: true },
-    }),
+    ProjectMember.find({ userId }).select("projectId").lean(),
+    Project.find({ ownerId: userId }).select("_id").lean(),
+    Task.find({ assigneeId: userId }).select("projectId").lean(),
   ]);
 
   const ids = new Set();
-  memberships.forEach((m) => ids.add(m.projectId));
-  owned.forEach((p) => ids.add(p.id));
-  assigned.forEach((t) => ids.add(t.projectId));
+  memberships.forEach((m) => ids.add(String(m.projectId)));
+  owned.forEach((p) => ids.add(String(p._id)));
+  assigned.forEach((t) => ids.add(String(t.projectId)));
   return Array.from(ids);
 }
 
 async function assertCanAccessProject(user, projectId) {
   if (isAdmin(user)) return;
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      ownerId: true,
-      members: { where: { userId: user.id }, select: { id: true } },
-      tasks: {
-        where: { assigneeId: user.id },
-        select: { id: true },
-        take: 1,
-      },
-    },
-  });
-
+  const project = await Project.findById(projectId).select("ownerId").lean();
   if (!project) {
     throw new AppError(404, "Project not found");
   }
 
-  const isOwner = project.ownerId === user.id;
-  const isMember = project.members.length > 0;
-  const isAssignee = project.tasks.length > 0;
+  const userId = toObjectId(user.id);
+  const isOwner = String(project.ownerId) === String(user.id);
 
-  if (!isOwner && !isMember && !isAssignee) {
+  const [member, assignedTask] = await Promise.all([
+    ProjectMember.findOne({
+      projectId: project._id,
+      userId,
+    })
+      .select("_id")
+      .lean(),
+    Task.findOne({ projectId: project._id, assigneeId: userId })
+      .select("_id")
+      .lean(),
+  ]);
+
+  if (!isOwner && !member && !assignedTask) {
     throw new AppError(403, "You do not have access to this project");
   }
 }
@@ -73,16 +71,12 @@ async function assertCanManageProject(user, projectId) {
     throw new AppError(403, "Only managers and admins can manage projects");
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { ownerId: true },
-  });
-
+  const project = await Project.findById(projectId).select("ownerId").lean();
   if (!project) {
     throw new AppError(404, "Project not found");
   }
 
-  if (project.ownerId !== user.id) {
+  if (String(project.ownerId) !== String(user.id)) {
     throw new AppError(403, "You can only manage projects you own");
   }
 }
@@ -95,30 +89,30 @@ async function assertCanMutateTask(user, task) {
     return;
   }
 
-  if (task.assigneeId !== user.id) {
+  if (String(task.assigneeId || "") !== String(user.id)) {
     throw new AppError(403, "You can only update tasks assigned to you");
   }
 }
 
-/** Ensure assignee is (or becomes) a project member so they can see the project. */
 async function ensureProjectMembership(projectId, userId) {
   if (!userId) return;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true },
-  });
+  const user = await User.findById(userId).select("_id").lean();
   if (!user) {
     throw new AppError(400, "Assignee user was not found");
   }
 
-  await prisma.projectMember.upsert({
-    where: {
-      projectId_userId: { projectId, userId },
+  await ProjectMember.updateOne(
+    { projectId: toObjectId(projectId), userId: toObjectId(userId) },
+    {
+      $setOnInsert: {
+        projectId: toObjectId(projectId),
+        userId: toObjectId(userId),
+        joinedAt: new Date(),
+      },
     },
-    create: { projectId, userId },
-    update: {},
-  });
+    { upsert: true }
+  );
 }
 
 module.exports = {

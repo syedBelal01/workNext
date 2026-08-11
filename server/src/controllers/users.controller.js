@@ -2,7 +2,15 @@ const bcrypt = require("bcryptjs");
 const { Role } = require("../lib/constants");
 const { writeAuditLog } = require("../lib/audit");
 const { AppError } = require("../lib/errors");
-const { prisma } = require("../lib/prisma");
+const { serialize, contains } = require("../lib/serialize");
+const {
+  User,
+  Project,
+  ProjectMember,
+  Task,
+  AuditLog,
+  toObjectId,
+} = require("../models");
 const { asyncHandler } = require("../middleware/error");
 const {
   createUserSchema,
@@ -10,47 +18,32 @@ const {
   updateUserSchema,
 } = require("../validators/schemas");
 
-const publicUserSelect = {
-  id: true,
-  email: true,
-  name: true,
-  role: true,
-  isActive: true,
-  createdAt: true,
-  updatedAt: true,
-};
-
-function containsSearch(search) {
-  if (!search) return {};
-  return {
-    OR: [
-      { name: { contains: search } },
-      { email: { contains: search } },
-    ],
-  };
-}
+const publicFields = "email name role isActive createdAt updatedAt";
 
 const listUsers = asyncHandler(async (req, res) => {
   const query = paginationSchema.parse(req.query);
-  const where = {
-    ...containsSearch(query.search),
+  const filter = {
     ...(query.role ? { role: query.role } : {}),
+    ...(query.search
+      ? {
+          $or: [contains("name", query.search), contains("email", query.search)],
+        }
+      : {}),
   };
 
   const [total, users] = await Promise.all([
-    prisma.user.count({ where }),
-    prisma.user.findMany({
-      where,
-      select: publicUserSelect,
-      orderBy: { createdAt: "desc" },
-      skip: (query.page - 1) * query.limit,
-      take: query.limit,
-    }),
+    User.countDocuments(filter),
+    User.find(filter)
+      .select(publicFields)
+      .sort({ createdAt: -1 })
+      .skip((query.page - 1) * query.limit)
+      .limit(query.limit)
+      .lean(),
   ]);
 
   res.json({
     success: true,
-    data: users,
+    data: serialize(users),
     meta: {
       page: query.page,
       limit: query.limit,
@@ -64,44 +57,45 @@ const createUser = asyncHandler(async (req, res) => {
   const body = createUserSchema.parse(req.body);
   const email = body.email.toLowerCase();
 
-  const existing = await prisma.user.findUnique({ where: { email } });
+  const existing = await User.findOne({ email }).select("_id").lean();
   if (existing) {
     throw new AppError(409, "A user with this email already exists");
   }
 
   const passwordHash = await bcrypt.hash(body.password, 10);
-  const user = await prisma.user.create({
-    data: {
-      email,
-      name: body.name,
-      role: body.role,
-      passwordHash,
-    },
-    select: publicUserSelect,
+  const user = await User.create({
+    email,
+    name: body.name,
+    role: body.role,
+    passwordHash,
   });
+
+  const safe = serialize(
+    await User.findById(user._id).select(publicFields).lean()
+  );
 
   await writeAuditLog({
     req,
     action: "USER_CREATE",
     entityType: "User",
-    entityId: user.id,
-    metadata: { email: user.email, role: user.role },
+    entityId: safe.id,
+    metadata: { email: safe.email, role: safe.role },
   });
 
-  res.status(201).json({ success: true, data: user });
+  res.status(201).json({ success: true, data: safe });
 });
 
 const updateUser = asyncHandler(async (req, res) => {
   const body = updateUserSchema.parse(req.body);
   const { id } = req.params;
 
-  const existing = await prisma.user.findUnique({ where: { id } });
+  const existing = await User.findById(id).lean();
   if (!existing) {
     throw new AppError(404, "User not found");
   }
 
   if (
-    existing.id === req.user.id &&
+    String(existing._id) === req.user.id &&
     ((body.role && body.role !== Role.ADMIN) || body.isActive === false)
   ) {
     throw new AppError(400, "You cannot demote or deactivate your own account");
@@ -111,26 +105,28 @@ const updateUser = asyncHandler(async (req, res) => {
     ? await bcrypt.hash(body.password, 10)
     : undefined;
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: {
-      name: body.name,
-      role: body.role,
-      isActive: body.isActive,
+  const user = await User.findByIdAndUpdate(
+    id,
+    {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.role !== undefined ? { role: body.role } : {}),
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       ...(passwordHash ? { passwordHash } : {}),
     },
-    select: publicUserSelect,
-  });
+    { new: true }
+  )
+    .select(publicFields)
+    .lean();
 
   await writeAuditLog({
     req,
     action: "USER_UPDATE",
     entityType: "User",
-    entityId: user.id,
+    entityId: String(user._id),
     metadata: body,
   });
 
-  res.json({ success: true, data: user });
+  res.json({ success: true, data: serialize(user) });
 });
 
 const deleteUser = asyncHandler(async (req, res) => {
@@ -140,39 +136,27 @@ const deleteUser = asyncHandler(async (req, res) => {
     throw new AppError(400, "You cannot delete your own account");
   }
 
-  const existing = await prisma.user.findUnique({ where: { id } });
+  const existing = await User.findById(id).lean();
   if (!existing) {
     throw new AppError(404, "User not found");
   }
 
-  const ownedProjects = await prisma.project.findMany({
-    where: { ownerId: id },
-    select: { id: true },
-  });
-  const ownedIds = ownedProjects.map((p) => p.id);
+  const userId = toObjectId(id);
+  const ownedProjects = await Project.find({ ownerId: userId })
+    .select("_id")
+    .lean();
+  const ownedIds = ownedProjects.map((p) => p._id);
 
-  await prisma.$transaction([
-    prisma.task.deleteMany({
-      where: {
-        OR: [{ createdById: id }, { projectId: { in: ownedIds } }],
-      },
-    }),
-    prisma.projectMember.deleteMany({
-      where: {
-        OR: [{ userId: id }, { projectId: { in: ownedIds } }],
-      },
-    }),
-    prisma.project.deleteMany({ where: { ownerId: id } }),
-    prisma.task.updateMany({
-      where: { assigneeId: id },
-      data: { assigneeId: null },
-    }),
-    prisma.auditLog.updateMany({
-      where: { actorId: id },
-      data: { actorId: null },
-    }),
-    prisma.user.delete({ where: { id } }),
-  ]);
+  await Task.deleteMany({
+    $or: [{ createdById: userId }, { projectId: { $in: ownedIds } }],
+  });
+  await ProjectMember.deleteMany({
+    $or: [{ userId }, { projectId: { $in: ownedIds } }],
+  });
+  await Project.deleteMany({ ownerId: userId });
+  await Task.updateMany({ assigneeId: userId }, { $set: { assigneeId: null } });
+  await AuditLog.updateMany({ actorId: userId }, { $set: { actorId: null } });
+  await User.deleteOne({ _id: userId });
 
   await writeAuditLog({
     req,
@@ -186,13 +170,12 @@ const deleteUser = asyncHandler(async (req, res) => {
 });
 
 const listAssignableUsers = asyncHandler(async (_req, res) => {
-  const users = await prisma.user.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true, email: true, role: true },
-    orderBy: { name: "asc" },
-  });
+  const users = await User.find({ isActive: true })
+    .select("name email role")
+    .sort({ name: 1 })
+    .lean();
 
-  res.json({ success: true, data: users });
+  res.json({ success: true, data: serialize(users) });
 });
 
 module.exports = {

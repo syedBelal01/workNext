@@ -16,5 +16,3 @@ uploads/
 .idea/
 *.db
 *.db-journal
-server/prisma/*.db
-server/prisma/*.db-journal

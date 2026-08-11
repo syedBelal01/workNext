@@ -7,18 +7,11 @@
     "dev": "node --watch src/index.js",
     "build": "echo No build step",
     "start": "node src/index.js",
-    "postinstall": "prisma generate",
-    "vercel-build": "prisma generate",
-    "db:migrate": "prisma db push",
-    "db:migrate:dev": "prisma db push",
-    "db:seed": "node prisma/seed.js",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:seed": "node seed.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@prisma/client": "^6.5.0",
     "bcryptjs": "^3.0.2",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -27,8 +20,8 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.12.1",
     "morgan": "^1.10.0",
-    "prisma": "^6.5.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

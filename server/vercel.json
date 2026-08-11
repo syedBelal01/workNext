@@ -1,19 +1,11 @@
 {
   "version": 2,
-  "buildCommand": "prisma generate",
-  "installCommand": "npm install",
   "builds": [
     {
       "src": "api/index.js",
       "use": "@vercel/node",
       "config": {
-        "includeFiles": [
-          "prisma/**",
-          "src/**",
-          "node_modules/.prisma/client/**",
-          "node_modules/@prisma/client/**",
-          "node_modules/prisma/**"
-        ]
+        "includeFiles": ["src/**", "seed.js"]
       }
     }
   ],

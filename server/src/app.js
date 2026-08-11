@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
 const { env } = require("./config/env");
+const { connectDb } = require("./db/connect");
 const { errorHandler, notFoundHandler } = require("./middleware/error");
 const routes = require("./routes");
 
@@ -38,6 +39,15 @@ function createApp() {
   if (!env.onVercel) {
     app.use(morgan(env.isTest ? "tiny" : "dev"));
   }
+
+  app.use(async (_req, _res, next) => {
+    try {
+      await connectDb();
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.use(
     "/api/auth/login",

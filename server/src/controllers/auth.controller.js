@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 const { writeAuditLog } = require("../lib/audit");
 const { AppError } = require("../lib/errors");
-const { prisma } = require("../lib/prisma");
+const { User } = require("../models");
 const { authenticate, signToken } = require("../middleware/auth");
 const { asyncHandler } = require("../middleware/error");
 const { loginSchema } = require("../validators/schemas");
@@ -9,17 +9,9 @@ const { loginSchema } = require("../validators/schemas");
 const login = asyncHandler(async (req, res) => {
   const body = loginSchema.parse(req.body);
 
-  const user = await prisma.user.findUnique({
-    where: { email: body.email.toLowerCase() },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-      isActive: true,
-      passwordHash: true,
-    },
-  });
+  const user = await User.findOne({ email: body.email.toLowerCase() })
+    .select("email name role isActive passwordHash")
+    .lean();
 
   if (!user || !user.isActive) {
     throw new AppError(401, "Invalid email or password");
@@ -31,7 +23,7 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const authUser = {
-    id: user.id,
+    id: String(user._id),
     email: user.email,
     name: user.name,
     role: user.role,
@@ -39,12 +31,11 @@ const login = asyncHandler(async (req, res) => {
 
   const token = signToken(authUser);
 
-  // Don't block login response on audit write
   void writeAuditLog({
-    actorId: user.id,
+    actorId: authUser.id,
     action: "AUTH_LOGIN",
     entityType: "User",
-    entityId: user.id,
+    entityId: authUser.id,
     req,
   });
 

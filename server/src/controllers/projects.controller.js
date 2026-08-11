@@ -1,7 +1,15 @@
 const { writeAuditLog } = require("../lib/audit");
 const { Role } = require("../lib/constants");
 const { AppError } = require("../lib/errors");
-const { prisma } = require("../lib/prisma");
+const { serialize, contains } = require("../lib/serialize");
+const {
+  User,
+  Project,
+  ProjectMember,
+  Task,
+  toObjectId,
+  toObjectIds,
+} = require("../models");
 const {
   assertCanAccessProject,
   assertCanManageProject,
@@ -16,47 +24,104 @@ const {
   updateProjectSchema,
 } = require("../validators/schemas");
 
-const projectInclude = {
-  owner: { select: { id: true, name: true, email: true, role: true } },
-  members: {
-    include: {
-      user: { select: { id: true, name: true, email: true, role: true } },
-    },
-  },
-  _count: { select: { tasks: true } },
-};
+async function loadMembers(projectId) {
+  const members = await ProjectMember.find({ projectId: toObjectId(projectId) })
+    .populate({ path: "userId", select: "name email role" })
+    .lean();
+
+  return serialize(members).map((member) => {
+    const user =
+      member.userId && typeof member.userId === "object"
+        ? member.userId
+        : null;
+    return {
+      id: member.id,
+      projectId: String(member.projectId),
+      userId: user ? user.id : String(member.userId),
+      joinedAt: member.joinedAt,
+      user,
+    };
+  });
+}
+
+async function formatProject(projectDoc, { withTasks = false, assigneeOnlyId = null } = {}) {
+  const project = serialize(projectDoc);
+  if (project.ownerId && typeof project.ownerId === "object") {
+    project.owner = project.ownerId;
+    project.ownerId = project.owner.id;
+  }
+
+  const [members, taskCount, tasks] = await Promise.all([
+    loadMembers(project.id),
+    Task.countDocuments({ projectId: toObjectId(project.id) }),
+    withTasks
+      ? Task.find({
+          projectId: toObjectId(project.id),
+          ...(assigneeOnlyId
+            ? { assigneeId: toObjectId(assigneeOnlyId) }
+            : {}),
+        })
+          .populate({ path: "assigneeId", select: "name email" })
+          .populate({ path: "createdById", select: "name" })
+          .sort({ updatedAt: -1 })
+          .lean()
+      : Promise.resolve(null),
+  ]);
+
+  project.members = members;
+  project._count = { tasks: taskCount };
+
+  if (tasks) {
+    project.tasks = serialize(tasks).map((task) => {
+      if (task.assigneeId && typeof task.assigneeId === "object") {
+        task.assignee = task.assigneeId;
+        task.assigneeId = task.assignee.id;
+      } else {
+        task.assignee = null;
+      }
+      if (task.createdById && typeof task.createdById === "object") {
+        task.createdBy = task.createdById;
+        task.createdById = task.createdBy.id;
+      }
+      return task;
+    });
+  }
+
+  return project;
+}
 
 const listProjects = asyncHandler(async (req, res) => {
   const query = paginationSchema.parse(req.query);
   const accessible = await getAccessibleProjectIds(req.user);
 
-  const where = {
-    ...(accessible === "ALL" ? {} : { id: { in: accessible } }),
+  const filter = {
+    ...(accessible === "ALL" ? {} : { _id: { $in: toObjectIds(accessible) } }),
     ...(query.status ? { status: query.status } : {}),
     ...(query.search
       ? {
-          OR: [
-            { name: { contains: query.search } },
-            { description: { contains: query.search } },
+          $or: [
+            contains("name", query.search),
+            contains("description", query.search),
           ],
         }
       : {}),
   };
 
   const [total, projects] = await Promise.all([
-    prisma.project.count({ where }),
-    prisma.project.findMany({
-      where,
-      include: projectInclude,
-      orderBy: { updatedAt: "desc" },
-      skip: (query.page - 1) * query.limit,
-      take: query.limit,
-    }),
+    Project.countDocuments(filter),
+    Project.find(filter)
+      .populate({ path: "ownerId", select: "name email role" })
+      .sort({ updatedAt: -1 })
+      .skip((query.page - 1) * query.limit)
+      .limit(query.limit)
+      .lean(),
   ]);
+
+  const data = await Promise.all(projects.map((p) => formatProject(p)));
 
   res.json({
     success: true,
-    data: projects,
+    data,
     meta: {
       page: query.page,
       limit: query.limit,
@@ -69,28 +134,21 @@ const listProjects = asyncHandler(async (req, res) => {
 const getProject = asyncHandler(async (req, res) => {
   await assertCanAccessProject(req.user, req.params.id);
 
-  const memberOnlyAssigned = req.user.role === Role.MEMBER;
-
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.id },
-    include: {
-      ...projectInclude,
-      tasks: {
-        where: memberOnlyAssigned ? { assigneeId: req.user.id } : undefined,
-        include: {
-          assignee: { select: { id: true, name: true, email: true } },
-          createdBy: { select: { id: true, name: true } },
-        },
-        orderBy: { updatedAt: "desc" },
-      },
-    },
-  });
+  const project = await Project.findById(req.params.id)
+    .populate({ path: "ownerId", select: "name email role" })
+    .lean();
 
   if (!project) {
     throw new AppError(404, "Project not found");
   }
 
-  res.json({ success: true, data: project });
+  const memberOnlyAssigned = req.user.role === Role.MEMBER;
+  const data = await formatProject(project, {
+    withTasks: true,
+    assigneeOnlyId: memberOnlyAssigned ? req.user.id : null,
+  });
+
+  res.json({ success: true, data });
 });
 
 const createProject = asyncHandler(async (req, res) => {
@@ -100,10 +158,9 @@ const createProject = asyncHandler(async (req, res) => {
 
   const body = projectSchema.parse(req.body);
 
-  const creator = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: { id: true, isActive: true },
-  });
+  const creator = await User.findById(req.user.id)
+    .select("isActive")
+    .lean();
 
   if (!creator?.isActive) {
     throw new AppError(
@@ -117,10 +174,12 @@ const createProject = asyncHandler(async (req, res) => {
   );
 
   const selectedUsers = requestedMemberIds.length
-    ? await prisma.user.findMany({
-        where: { id: { in: requestedMemberIds }, isActive: true },
-        select: { id: true },
+    ? await User.find({
+        _id: { $in: toObjectIds(requestedMemberIds) },
+        isActive: true,
       })
+        .select("_id")
+        .lean()
     : [];
 
   if (selectedUsers.length !== requestedMemberIds.length) {
@@ -131,33 +190,43 @@ const createProject = asyncHandler(async (req, res) => {
   }
 
   const memberIds = Array.from(
-    new Set([creator.id, ...selectedUsers.map((user) => user.id)])
+    new Set([
+      String(creator._id),
+      ...selectedUsers.map((user) => String(user._id)),
+    ])
   );
 
-  const project = await prisma.project.create({
-    data: {
-      name: body.name,
-      description: body.description ?? null,
-      status: body.status ?? "PLANNING",
-      ownerId: creator.id,
-      startDate: body.startDate ? new Date(body.startDate) : null,
-      dueDate: body.dueDate ? new Date(body.dueDate) : null,
-      members: {
-        create: memberIds.map((userId) => ({ userId })),
-      },
-    },
-    include: projectInclude,
+  const created = await Project.create({
+    name: body.name,
+    description: body.description ?? null,
+    status: body.status ?? "PLANNING",
+    ownerId: creator._id,
+    startDate: body.startDate ? new Date(body.startDate) : null,
+    dueDate: body.dueDate ? new Date(body.dueDate) : null,
   });
+
+  await ProjectMember.insertMany(
+    memberIds.map((userId) => ({
+      projectId: created._id,
+      userId: toObjectId(userId),
+    }))
+  );
+
+  const project = await Project.findById(created._id)
+    .populate({ path: "ownerId", select: "name email role" })
+    .lean();
+
+  const data = await formatProject(project);
 
   void writeAuditLog({
     req,
     action: "PROJECT_CREATE",
     entityType: "Project",
-    entityId: project.id,
-    metadata: { name: project.name },
+    entityId: data.id,
+    metadata: { name: data.name },
   });
 
-  res.status(201).json({ success: true, data: project });
+  res.status(201).json({ success: true, data });
 });
 
 const updateProject = asyncHandler(async (req, res) => {
@@ -165,97 +234,90 @@ const updateProject = asyncHandler(async (req, res) => {
   const body = updateProjectSchema.parse(req.body);
 
   if (body.memberIds) {
-    const users = await prisma.user.findMany({
-      where: { id: { in: body.memberIds }, isActive: true },
-      select: { id: true },
-    });
+    const users = await User.find({
+      _id: { $in: toObjectIds(body.memberIds) },
+      isActive: true,
+    })
+      .select("_id")
+      .lean();
     if (users.length !== body.memberIds.length) {
       throw new AppError(400, "One or more members are invalid");
     }
 
-    const project = await prisma.project.findUnique({
-      where: { id: req.params.id },
-      select: { ownerId: true },
-    });
+    const project = await Project.findById(req.params.id)
+      .select("ownerId")
+      .lean();
     if (!project) throw new AppError(404, "Project not found");
 
     const nextMembers = Array.from(
-      new Set([...body.memberIds, project.ownerId])
+      new Set([...body.memberIds.map(String), String(project.ownerId)])
     );
 
-    await prisma.$transaction([
-      prisma.projectMember.deleteMany({ where: { projectId: req.params.id } }),
-      prisma.projectMember.createMany({
-        data: nextMembers.map((userId) => ({
-          projectId: req.params.id,
-          userId,
-        })),
-      }),
-    ]);
+    await ProjectMember.deleteMany({ projectId: toObjectId(req.params.id) });
+    await ProjectMember.insertMany(
+      nextMembers.map((userId) => ({
+        projectId: toObjectId(req.params.id),
+        userId: toObjectId(userId),
+      }))
+    );
   }
 
-  const project = await prisma.project.update({
-    where: { id: req.params.id },
-    data: {
-      name: body.name,
-      description: body.description,
-      status: body.status,
-      startDate:
-        body.startDate === undefined
-          ? undefined
-          : body.startDate
-            ? new Date(body.startDate)
-            : null,
-      dueDate:
-        body.dueDate === undefined
-          ? undefined
-          : body.dueDate
-            ? new Date(body.dueDate)
-            : null,
+  const updated = await Project.findByIdAndUpdate(
+    req.params.id,
+    {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.description !== undefined
+        ? { description: body.description }
+        : {}),
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.startDate !== undefined
+        ? { startDate: body.startDate ? new Date(body.startDate) : null }
+        : {}),
+      ...(body.dueDate !== undefined
+        ? { dueDate: body.dueDate ? new Date(body.dueDate) : null }
+        : {}),
     },
-    include: projectInclude,
-  });
+    { new: true }
+  )
+    .populate({ path: "ownerId", select: "name email role" })
+    .lean();
+
+  if (!updated) throw new AppError(404, "Project not found");
+
+  const data = await formatProject(updated);
 
   await writeAuditLog({
     req,
     action: "PROJECT_UPDATE",
     entityType: "Project",
-    entityId: project.id,
+    entityId: data.id,
     metadata: body,
   });
 
-  res.json({ success: true, data: project });
+  res.json({ success: true, data });
 });
 
 const deleteProject = asyncHandler(async (req, res) => {
   if (isAdmin(req.user)) {
-    const exists = await prisma.project.findUnique({
-      where: { id: req.params.id },
-      select: { id: true, name: true },
-    });
+    const exists = await Project.findById(req.params.id).select("name").lean();
     if (!exists) throw new AppError(404, "Project not found");
   } else {
     await assertCanManageProject(req.user, req.params.id);
   }
 
-  const projectId = req.params.id;
-  const existing = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true },
-  });
+  const projectId = toObjectId(req.params.id);
+  const existing = await Project.findById(projectId).select("name").lean();
   if (!existing) throw new AppError(404, "Project not found");
 
-  await prisma.$transaction([
-    prisma.task.deleteMany({ where: { projectId } }),
-    prisma.projectMember.deleteMany({ where: { projectId } }),
-    prisma.project.delete({ where: { id: projectId } }),
-  ]);
+  await Task.deleteMany({ projectId });
+  await ProjectMember.deleteMany({ projectId });
+  await Project.deleteOne({ _id: projectId });
 
   await writeAuditLog({
     req,
     action: "PROJECT_DELETE",
     entityType: "Project",
-    entityId: existing.id,
+    entityId: String(existing._id),
     metadata: { name: existing.name },
   });
 

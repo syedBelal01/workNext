@@ -37,9 +37,9 @@ jobs:
         working-directory: server
         run: npm install
 
-      - name: Prepare database
+      - name: Seed database
         working-directory: server
-        run: npx prisma generate && npx prisma db push && node prisma/seed.js
+        run: npm run db:seed
         env:
           DATABASE_URL: mongodb://127.0.0.1:27017/worknest_test?replicaSet=rs0&directConnection=true
           JWT_SECRET: ci-test-secret-key-32-characters!

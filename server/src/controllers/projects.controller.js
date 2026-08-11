@@ -1,4 +1,5 @@
 const { writeAuditLog } = require("../lib/audit");
+const { Role } = require("../lib/constants");
 const { AppError } = require("../lib/errors");
 const { prisma } = require("../lib/prisma");
 const {
@@ -68,11 +69,14 @@ const listProjects = asyncHandler(async (req, res) => {
 const getProject = asyncHandler(async (req, res) => {
   await assertCanAccessProject(req.user, req.params.id);
 
+  const memberOnlyAssigned = req.user.role === Role.MEMBER;
+
   const project = await prisma.project.findUnique({
     where: { id: req.params.id },
     include: {
       ...projectInclude,
       tasks: {
+        where: memberOnlyAssigned ? { assigneeId: req.user.id } : undefined,
         include: {
           assignee: { select: { id: true, name: true, email: true } },
           createdBy: { select: { id: true, name: true } },

@@ -15,7 +15,7 @@ async function getAccessibleProjectIds(user) {
     return "ALL";
   }
 
-  const [memberships, owned] = await Promise.all([
+  const [memberships, owned, assigned] = await Promise.all([
     prisma.projectMember.findMany({
       where: { userId: user.id },
       select: { projectId: true },
@@ -24,11 +24,16 @@ async function getAccessibleProjectIds(user) {
       where: { ownerId: user.id },
       select: { id: true },
     }),
+    prisma.task.findMany({
+      where: { assigneeId: user.id },
+      select: { projectId: true },
+    }),
   ]);
 
   const ids = new Set();
   memberships.forEach((m) => ids.add(m.projectId));
   owned.forEach((p) => ids.add(p.id));
+  assigned.forEach((t) => ids.add(t.projectId));
   return Array.from(ids);
 }
 
@@ -40,6 +45,11 @@ async function assertCanAccessProject(user, projectId) {
     select: {
       ownerId: true,
       members: { where: { userId: user.id }, select: { id: true } },
+      tasks: {
+        where: { assigneeId: user.id },
+        select: { id: true },
+        take: 1,
+      },
     },
   });
 
@@ -49,8 +59,9 @@ async function assertCanAccessProject(user, projectId) {
 
   const isOwner = project.ownerId === user.id;
   const isMember = project.members.length > 0;
+  const isAssignee = project.tasks.length > 0;
 
-  if (!isOwner && !isMember) {
+  if (!isOwner && !isMember && !isAssignee) {
     throw new AppError(403, "You do not have access to this project");
   }
 }
@@ -89,6 +100,27 @@ async function assertCanMutateTask(user, task) {
   }
 }
 
+/** Ensure assignee is (or becomes) a project member so they can see the project. */
+async function ensureProjectMembership(projectId, userId) {
+  if (!userId) return;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!user) {
+    throw new AppError(400, "Assignee user was not found");
+  }
+
+  await prisma.projectMember.upsert({
+    where: {
+      projectId_userId: { projectId, userId },
+    },
+    create: { projectId, userId },
+    update: {},
+  });
+}
+
 module.exports = {
   isAdmin,
   isManagerOrAbove,
@@ -96,4 +128,5 @@ module.exports = {
   assertCanAccessProject,
   assertCanManageProject,
   assertCanMutateTask,
+  ensureProjectMembership,
 };

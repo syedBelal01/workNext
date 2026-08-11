@@ -68,10 +68,6 @@ function buildUrl(path, query) {
   return url.toString();
 }
 
-function cacheKey(path, query) {
-  return buildUrl(path, query);
-}
-
 export function invalidateApiCache() {
   getCache.clear();
 }

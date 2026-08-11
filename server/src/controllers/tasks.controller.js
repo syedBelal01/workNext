@@ -6,6 +6,7 @@ const {
   assertCanAccessProject,
   assertCanManageProject,
   assertCanMutateTask,
+  ensureProjectMembership,
   getAccessibleProjectIds,
   isAdmin,
 } = require("../lib/rbac");
@@ -24,17 +25,27 @@ const taskInclude = {
 
 const listTasks = asyncHandler(async (req, res) => {
   const query = paginationSchema.parse(req.query);
-  const accessible = await getAccessibleProjectIds(req.user);
+  const isMember = req.user.role === Role.MEMBER;
+
+  // Members only see tasks assigned to them (across projects they can access).
+  if (isMember) {
+    if (query.projectId) {
+      await assertCanAccessProject(req.user, query.projectId);
+    }
+  }
+
+  const accessible = isMember ? null : await getAccessibleProjectIds(req.user);
 
   const where = {
-    ...(accessible === "ALL" ? {} : { projectId: { in: accessible } }),
+    ...(isMember
+      ? { assigneeId: req.user.id }
+      : accessible === "ALL"
+        ? {}
+        : { projectId: { in: accessible } }),
     ...(query.projectId ? { projectId: query.projectId } : {}),
     ...(query.status ? { status: query.status } : {}),
     ...(query.priority ? { priority: query.priority } : {}),
-    ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
-    ...(req.user.role === Role.MEMBER && !query.assigneeId && !query.projectId
-      ? { assigneeId: req.user.id }
-      : {}),
+    ...(!isMember && query.assigneeId ? { assigneeId: query.assigneeId } : {}),
     ...(query.search
       ? {
           OR: [
@@ -44,10 +55,6 @@ const listTasks = asyncHandler(async (req, res) => {
         }
       : {}),
   };
-
-  if (req.user.role === Role.MEMBER && query.projectId) {
-    await assertCanAccessProject(req.user, query.projectId);
-  }
 
   const [total, tasks] = await Promise.all([
     prisma.task.count({ where }),
@@ -82,7 +89,9 @@ const getTask = asyncHandler(async (req, res) => {
     throw new AppError(404, "Task not found");
   }
 
-  await assertCanAccessProject(req.user, task.projectId);
+  if (task.assigneeId !== req.user.id) {
+    await assertCanAccessProject(req.user, task.projectId);
+  }
   res.json({ success: true, data: task });
 });
 
@@ -105,17 +114,7 @@ const createTask = asyncHandler(async (req, res) => {
   }
 
   if (body.assigneeId) {
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId: body.assigneeId,
-        },
-      },
-    });
-    if (!membership) {
-      throw new AppError(400, "Assignee must be a project member");
-    }
+    await ensureProjectMembership(projectId, body.assigneeId);
   }
 
   const task = await prisma.task.create({
@@ -170,17 +169,7 @@ const updateTask = asyncHandler(async (req, res) => {
   }
 
   if (body.assigneeId) {
-    const membership = await prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId: existing.projectId,
-          userId: body.assigneeId,
-        },
-      },
-    });
-    if (!membership) {
-      throw new AppError(400, "Assignee must be a project member");
-    }
+    await ensureProjectMembership(existing.projectId, body.assigneeId);
   }
 
   const task = await prisma.task.update({

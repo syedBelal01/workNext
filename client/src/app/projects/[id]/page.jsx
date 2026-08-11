@@ -12,6 +12,7 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const { user, hasRole } = useAuth();
   const [project, setProject] = useState(null);
+  const [assignable, setAssignable] = useState([]);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     title: "",
@@ -21,10 +22,24 @@ export default function ProjectDetailPage() {
     assigneeId: "",
   });
 
+  const canManage = hasRole("ADMIN", "MANAGER");
   const canCreate =
-    hasRole("ADMIN", "MANAGER") ||
+    canManage ||
     (hasRole("MEMBER") &&
       !!project?.members?.some((member) => member.user.id === user?.id));
+
+  const assigneeOptions = (() => {
+    if (canManage && assignable.length) {
+      return assignable.map((person) => ({
+        id: person.id,
+        name: person.name,
+      }));
+    }
+    return (project?.members || []).map((member) => ({
+      id: member.user.id,
+      name: member.user.name,
+    }));
+  })();
 
   const load = useCallback(async () => {
     try {
@@ -39,6 +54,14 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!canManage) return;
+    api
+      .get("/users/assignable")
+      .then(setAssignable)
+      .catch(() => setAssignable([]));
+  }, [canManage]);
 
   async function createTask(event) {
     event.preventDefault();
@@ -81,7 +104,11 @@ export default function ProjectDetailPage() {
               <span className="badge">{formatLabel(project.status)}</span>
               <span className="badge neutral">Owner: {project.owner?.name}</span>
             </div>
-            <h3 style={{ marginBottom: "0.75rem" }}>Tasks</h3>
+            <h3 style={{ marginBottom: "0.75rem" }}>
+              {hasRole("MEMBER") && !canManage
+                ? "My assigned tasks"
+                : "Tasks"}
+            </h3>
             <div className="table-wrap">
               <table>
                 <thead>
@@ -93,29 +120,37 @@ export default function ProjectDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(project.tasks || []).map((task) => (
-                    <tr key={task.id}>
-                      <td>
-                        <Link href={`/tasks?highlight=${task.id}`}>
-                          <strong>{task.title}</strong>
-                        </Link>
+                  {(project.tasks || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="muted">
+                        No tasks to show
                       </td>
-                      <td>{formatLabel(task.status)}</td>
-                      <td>
-                        <span
-                          className={
-                            task.priority === "URGENT" ||
-                            task.priority === "HIGH"
-                              ? "badge warn"
-                              : "badge"
-                          }
-                        >
-                          {formatLabel(task.priority)}
-                        </span>
-                      </td>
-                      <td>{task.assignee?.name || "Unassigned"}</td>
                     </tr>
-                  ))}
+                  ) : (
+                    (project.tasks || []).map((task) => (
+                      <tr key={task.id}>
+                        <td>
+                          <Link href={`/tasks?highlight=${task.id}`}>
+                            <strong>{task.title}</strong>
+                          </Link>
+                        </td>
+                        <td>{formatLabel(task.status)}</td>
+                        <td>
+                          <span
+                            className={
+                              task.priority === "URGENT" ||
+                              task.priority === "HIGH"
+                                ? "badge warn"
+                                : "badge"
+                            }
+                          >
+                            {formatLabel(task.priority)}
+                          </span>
+                        </td>
+                        <td>{task.assignee?.name || "Unassigned"}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -158,7 +193,7 @@ export default function ProjectDetailPage() {
                     ))}
                   </select>
                 </div>
-                {hasRole("ADMIN", "MANAGER") ? (
+                {canManage ? (
                   <>
                     <div className="field">
                       <label htmlFor="priority">Priority</label>
@@ -186,12 +221,15 @@ export default function ProjectDetailPage() {
                         }
                       >
                         <option value="">Unassigned</option>
-                        {(project.members || []).map((member) => (
-                          <option key={member.user.id} value={member.user.id}>
-                            {member.user.name}
+                        {assigneeOptions.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name}
                           </option>
                         ))}
                       </select>
+                      <span className="muted">
+                        Assigned users get project access and see this task.
+                      </span>
                     </div>
                   </>
                 ) : null}

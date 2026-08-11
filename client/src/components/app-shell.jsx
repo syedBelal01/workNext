@@ -35,6 +35,11 @@ export function AppShell({ children }) {
     (item) => !item.roles || item.roles.some((role) => hasRole(role))
   );
 
+  async function handleLogout() {
+    await logout();
+    router.replace("/login");
+  }
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -63,26 +68,47 @@ export function AppShell({ children }) {
             <strong>{user.name}</strong>
             <span>{user.role}</span>
           </div>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={async () => {
-              await logout();
-              router.replace("/login");
-            }}
-          >
+          <button type="button" className="ghost-btn" onClick={handleLogout}>
             Sign out
           </button>
         </div>
       </aside>
       <main className="main-pane">
         <header className="topbar">
-          <p className="eyebrow">Signed in as {user.email}</p>
-          <h1 className="page-kicker">
-            {visibleNav.find((item) => pathname.startsWith(item.href))?.label ||
-              "Workspace"}
-          </h1>
+          <div className="topbar-text">
+            <p className="eyebrow">Signed in as {user.email}</p>
+            <h1 className="page-kicker">
+              {visibleNav.find((item) => pathname.startsWith(item.href))
+                ?.label || "Workspace"}
+            </h1>
+          </div>
+          <div className="topbar-actions">
+            <div className="topbar-user">
+              <strong>{user.name}</strong>
+              <span>{user.role}</span>
+            </div>
+            <button
+              type="button"
+              className="btn secondary signout-btn"
+              onClick={handleLogout}
+            >
+              Sign out
+            </button>
+          </div>
         </header>
+        <nav className="mobile-nav">
+          {visibleNav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={
+                pathname.startsWith(item.href) ? "nav-link active" : "nav-link"
+              }
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
         <div className="content">{children}</div>
       </main>
     </div>
